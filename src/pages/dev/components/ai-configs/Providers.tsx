@@ -93,8 +93,8 @@ export const Providers = ({
           <div className="space-y-2">
             <div className="flex gap-2">
               <Input
-                type="password"
-                placeholder="**********"
+                type="text"
+                placeholder="Enter key here"
                 value={getApiKeyValue()}
                 onChange={(value) => {
                   const apiKeyVar = findKeyAndValue("api_key");

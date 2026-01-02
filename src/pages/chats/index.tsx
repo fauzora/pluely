@@ -1,13 +1,28 @@
-import { Badge, Input, Card, Empty } from "@/components";
+import { Badge, Input, Card, Empty, Button, Checkbox } from "@/components";
 import { useHistory } from "@/hooks";
 import { PageLayout } from "@/layouts";
-import { MessageCircleIcon, Search } from "lucide-react";
+import { MessageCircleIcon, Search, Trash2Icon, XIcon, CheckSquareIcon } from "lucide-react";
 import moment from "moment";
 import { useNavigate } from "react-router-dom";
+import { BatchDeleteConfirmation } from "./components/BatchDeleteConfirmation";
 
 const Dashboard = () => {
   const conversations = useHistory();
   const navigate = useNavigate();
+  
+  const {
+    isSelectionMode,
+    selectedIds,
+    batchDeleteConfirm,
+    toggleSelectionMode,
+    toggleSelectItem,
+    selectAll,
+    deselectAll,
+    handleBatchDeleteConfirm,
+    confirmBatchDelete,
+    cancelBatchDelete,
+  } = conversations;
+  
   // Group conversations by date
   const groupedConversations = conversations.conversations.reduce(
     (acc, doc) => {
@@ -41,16 +56,64 @@ const Dashboard = () => {
           />
         ) : (
           <div className="flex flex-col gap-6 pb-8">
-            <div className="relative mb-4 w-1/3">
-              <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search conversations..."
-                className="pl-9 focus-visible:ring-0 focus-visible:ring-offset-0"
-                value={conversations.search}
-                onChange={(e) => conversations.setSearch(e.target.value)}
-              />
+            {/* Search and Batch Actions */}
+            <div className="flex items-center justify-between gap-4 mb-4">
+              <div className="relative w-1/3">
+                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Search conversations..."
+                  className="pl-9 focus-visible:ring-0 focus-visible:ring-offset-0"
+                  value={conversations.search}
+                  onChange={(e) => conversations.setSearch(e.target.value)}
+                />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                {isSelectionMode ? (
+                  <>
+                    <span className="text-sm text-muted-foreground">
+                      {selectedIds.size} selected
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={selectedIds.size === conversations.conversations.length ? deselectAll : selectAll}
+                    >
+                      <CheckSquareIcon className="h-4 w-4 mr-1" />
+                      {selectedIds.size === conversations.conversations.length ? "Deselect All" : "Select All"}
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={handleBatchDeleteConfirm}
+                      disabled={selectedIds.size === 0}
+                    >
+                      <Trash2Icon className="h-4 w-4 mr-1" />
+                      Delete ({selectedIds.size})
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={toggleSelectionMode}
+                    >
+                      <XIcon className="h-4 w-4 mr-1" />
+                      Cancel
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleSelectionMode}
+                  >
+                    <CheckSquareIcon className="h-4 w-4 mr-1" />
+                    Select
+                  </Button>
+                )}
+              </div>
             </div>
+            
             {sortedDates
               .filter((dateKey) =>
                 conversations?.search?.length === 0
@@ -70,13 +133,30 @@ const Dashboard = () => {
                     {groupedConversations[dateKey].map((doc) => (
                       <Card
                         key={doc.id}
-                        className="shadow-none select-none p-4 gap-0 group relative transition-all !bg-black/5 dark:!bg-white/5 hover:!border-primary/50 cursor-pointer"
-                        onClick={() => navigate(`/chats/view/${doc.id}`)}
+                        className={`shadow-none select-none p-4 gap-0 group relative transition-all !bg-black/5 dark:!bg-white/5 hover:!border-primary/50 cursor-pointer ${
+                          selectedIds.has(doc.id) ? "!border-primary ring-1 ring-primary" : ""
+                        }`}
+                        onClick={() => {
+                          if (isSelectionMode) {
+                            toggleSelectItem(doc.id);
+                          } else {
+                            navigate(`/chats/view/${doc.id}`);
+                          }
+                        }}
                       >
                         <div className="flex items-center justify-between">
-                          <p className="line-clamp-1 text-sm mr-8">
-                            {doc.title}
-                          </p>
+                          <div className="flex items-center gap-3">
+                            {isSelectionMode && (
+                              <Checkbox
+                                checked={selectedIds.has(doc.id)}
+                                onCheckedChange={() => toggleSelectItem(doc.id)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            )}
+                            <p className="line-clamp-1 text-sm mr-8">
+                              {doc.title}
+                            </p>
+                          </div>
                           <div className="flex items-center gap-1">
                             <Badge variant="outline" className="text-xs">
                               {doc.messages.length} messages
@@ -93,6 +173,13 @@ const Dashboard = () => {
               ))}
           </div>
         )}
+        
+        <BatchDeleteConfirmation
+          isOpen={batchDeleteConfirm}
+          count={selectedIds.size}
+          onCancel={cancelBatchDelete}
+          onConfirm={confirmBatchDelete}
+        />
       </>
     </PageLayout>
   );

@@ -71,4 +71,24 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
       linux: "ctrl+shift+s",
     },
   },
+  {
+    id: "scroll_chat_up",
+    name: "Scroll Chat Up",
+    description: "Scroll the overlay chat response up without mouse hover",
+    defaultKey: {
+      macos: "cmd+alt+up",
+      windows: "ctrl+alt+up",
+      linux: "ctrl+alt+up",
+    },
+  },
+  {
+    id: "scroll_chat_down",
+    name: "Scroll Chat Down",
+    description: "Scroll the overlay chat response down without mouse hover",
+    defaultKey: {
+      macos: "cmd+alt+down",
+      windows: "ctrl+alt+down",
+      linux: "ctrl+alt+down",
+    },
+  },
 ];

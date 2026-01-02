@@ -17,6 +17,11 @@ export interface UseHistoryReturn {
   deleteConfirm: string | null;
   isDownloaded: boolean;
   isAttached: boolean;
+  
+  // Batch Selection State
+  isSelectionMode: boolean;
+  selectedIds: Set<string>;
+  batchDeleteConfirm: boolean;
 
   // Actions
   handleViewConversation: (conversation: ChatConversation) => void;
@@ -34,6 +39,16 @@ export interface UseHistoryReturn {
   ) => void;
   search: string;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
+  
+  // Batch Selection Actions
+  toggleSelectionMode: () => void;
+  toggleSelectItem: (id: string) => void;
+  selectAll: () => void;
+  deselectAll: () => void;
+  handleBatchDeleteConfirm: () => void;
+  confirmBatchDelete: () => void;
+  cancelBatchDelete: () => void;
+  
   // Utilities
   refreshConversations: () => void;
   isLoading: boolean;
@@ -56,6 +71,11 @@ export function useHistory(): UseHistoryReturn {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [isAttached, setIsAttached] = useState(false);
+  
+  // Batch Selection State
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [batchDeleteConfirm, setBatchDeleteConfirm] = useState(false);
 
   // Function to refresh conversations
   const refreshConversations = useCallback(async () => {
@@ -154,6 +174,75 @@ export function useHistory(): UseHistoryReturn {
     setDeleteConfirm(null);
   };
 
+  // Batch Selection Functions
+  const toggleSelectionMode = () => {
+    setIsSelectionMode((prev) => !prev);
+    setSelectedIds(new Set());
+  };
+
+  const toggleSelectItem = (id: string) => {
+    setSelectedIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAll = () => {
+    setSelectedIds(new Set(conversations.map((c) => c.id)));
+  };
+
+  const deselectAll = () => {
+    setSelectedIds(new Set());
+  };
+
+  const handleBatchDeleteConfirm = () => {
+    if (selectedIds.size > 0) {
+      setBatchDeleteConfirm(true);
+    }
+  };
+
+  const confirmBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+
+    try {
+      // Delete all selected conversations
+      for (const id of selectedIds) {
+        await deleteConversation(id);
+      }
+      
+      // Update local state
+      setConversations((prev) => 
+        prev.filter((c) => !selectedIds.has(c.id))
+      );
+
+      // Emit events for each deletion
+      selectedIds.forEach((id) => {
+        window.dispatchEvent(
+          new CustomEvent("conversationDeleted", {
+            detail: id,
+          })
+        );
+      });
+
+      // Reset selection state
+      setSelectedIds(new Set());
+      setIsSelectionMode(false);
+    } catch (error) {
+      console.error("Failed to delete conversations:", error);
+    } finally {
+      setBatchDeleteConfirm(false);
+    }
+  };
+
+  const cancelBatchDelete = () => {
+    setBatchDeleteConfirm(false);
+  };
+
   const handleAttachToOverlay = (conversationId: string) => {
     // Use localStorage to communicate between windows
     localStorage.setItem(
@@ -218,6 +307,11 @@ export function useHistory(): UseHistoryReturn {
     deleteConfirm,
     isDownloaded,
     isAttached,
+    
+    // Batch Selection State
+    isSelectionMode,
+    selectedIds,
+    batchDeleteConfirm,
 
     // Actions
     handleViewConversation,
@@ -227,6 +321,16 @@ export function useHistory(): UseHistoryReturn {
     cancelDelete,
     handleAttachToOverlay,
     handleDownload,
+    
+    // Batch Selection Actions
+    toggleSelectionMode,
+    toggleSelectItem,
+    selectAll,
+    deselectAll,
+    handleBatchDeleteConfirm,
+    confirmBatchDelete,
+    cancelBatchDelete,
+    
     // Utilities
     refreshConversations,
     search,

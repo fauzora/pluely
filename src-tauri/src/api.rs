@@ -858,8 +858,16 @@ async fn report_api_error(
 #[tauri::command]
 pub async fn fetch_models() -> Result<Vec<Model>, String> {
     // Get environment variables
-    let app_endpoint = get_app_endpoint()?;
-    let api_access_key = get_api_access_key()?;
+    let app_endpoint = get_app_endpoint().map_err(|e| {
+        tracing::error!("Failed to get APP_ENDPOINT: {}", e);
+        e
+    })?;
+    let api_access_key = get_api_access_key().map_err(|e| {
+        tracing::error!("Failed to get API_ACCESS_KEY: {}", e);
+        e
+    })?;
+    
+    tracing::info!("Fetching models from: {}/api/models", app_endpoint);
 
     // Make HTTP request to models endpoint
     let client = reqwest::Client::new();

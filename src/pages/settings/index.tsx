@@ -5,10 +5,14 @@ import {
   AutostartToggle,
 } from "./components";
 import { PageLayout } from "@/layouts";
+import { MultiMonitorWarning } from "@/components";
 
 const Settings = () => {
   return (
     <PageLayout title="Settings" description="Manage your settings">
+      {/* Multi-Monitor Screenshot Support */}
+      <MultiMonitorWarning showAlways />
+
       {/* Theme */}
       <Theme />
 

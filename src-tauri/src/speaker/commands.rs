@@ -608,3 +608,169 @@ pub fn get_audio_sample_rate(_app: AppHandle) -> Result<u32, String> {
 
     Ok(sr)
 }
+
+// Audio device info struct
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AudioDeviceInfo {
+    pub device_id: String,
+    pub label: String,
+    pub kind: String, // "audioinput" or "audiooutput"
+}
+
+// List audio devices using pactl (Linux) or cpal
+#[tauri::command]
+pub async fn list_audio_devices() -> Result<Vec<AudioDeviceInfo>, String> {
+    #[cfg(target_os = "linux")]
+    {
+        list_audio_devices_linux().await
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        list_audio_devices_macos().await
+    }
+    
+    #[cfg(target_os = "windows")]
+    {
+        list_audio_devices_windows().await
+    }
+    
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        Err("Unsupported platform".to_string())
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn list_audio_devices_linux() -> Result<Vec<AudioDeviceInfo>, String> {
+    use std::process::Command;
+    
+    let mut devices = Vec::new();
+    
+    // Helper function to simplify device description
+    fn simplify_description(desc: &str) -> String {
+        // Remove common prefixes
+        let simplified = desc
+            .replace("Tiger Lake-LP Smart Sound Technology Audio Controller ", "")
+            .replace("Smart Sound Technology Audio Controller ", "")
+            .replace("Audio Controller ", "")
+            .replace("Monitor of ", "Monitor: ");
+        
+        // Trim and return
+        simplified.trim().to_string()
+    }
+    
+    // Get input devices (sources) with full details
+    let sources_output = Command::new("pactl")
+        .args(["list", "sources"])
+        .output()
+        .map_err(|e| format!("Failed to run pactl for sources: {}", e))?;
+    
+    if sources_output.status.success() {
+        let sources_str = String::from_utf8_lossy(&sources_output.stdout);
+        let mut current_name = String::new();
+        let mut current_description = String::new();
+        
+        for line in sources_str.lines() {
+            let line = line.trim();
+            if line.starts_with("Name:") {
+                current_name = line.trim_start_matches("Name:").trim().to_string();
+            } else if line.starts_with("Description:") {
+                current_description = line.trim_start_matches("Description:").trim().to_string();
+                
+                // Skip monitor sources (they capture output audio, not mic input)
+                if !current_name.contains(".monitor") && !current_name.is_empty() {
+                    devices.push(AudioDeviceInfo {
+                        device_id: current_name.clone(),
+                        label: simplify_description(&current_description),
+                        kind: "audioinput".to_string(),
+                    });
+                }
+                current_name.clear();
+                current_description.clear();
+            }
+        }
+    }
+    
+    // Get output devices (sinks) with full details
+    let sinks_output = Command::new("pactl")
+        .args(["list", "sinks"])
+        .output()
+        .map_err(|e| format!("Failed to run pactl for sinks: {}", e))?;
+    
+    if sinks_output.status.success() {
+        let sinks_str = String::from_utf8_lossy(&sinks_output.stdout);
+        let mut current_name = String::new();
+        let mut current_description = String::new();
+        
+        for line in sinks_str.lines() {
+            let line = line.trim();
+            if line.starts_with("Name:") {
+                current_name = line.trim_start_matches("Name:").trim().to_string();
+            } else if line.starts_with("Description:") {
+                current_description = line.trim_start_matches("Description:").trim().to_string();
+                
+                if !current_name.is_empty() {
+                    devices.push(AudioDeviceInfo {
+                        device_id: current_name.clone(),
+                        label: simplify_description(&current_description),
+                        kind: "audiooutput".to_string(),
+                    });
+                }
+                current_name.clear();
+                current_description.clear();
+            }
+        }
+    }
+    
+    // Add default devices at the beginning
+    devices.insert(0, AudioDeviceInfo {
+        device_id: "default".to_string(),
+        label: "Default Microphone".to_string(),
+        kind: "audioinput".to_string(),
+    });
+    
+    // Find position after all input devices to insert default speaker
+    let first_output_idx = devices.iter().position(|d| d.kind == "audiooutput").unwrap_or(devices.len());
+    devices.insert(first_output_idx, AudioDeviceInfo {
+        device_id: "default".to_string(),
+        label: "Default Speaker".to_string(),
+        kind: "audiooutput".to_string(),
+    });
+    
+    Ok(devices)
+}
+
+#[cfg(target_os = "macos")]
+async fn list_audio_devices_macos() -> Result<Vec<AudioDeviceInfo>, String> {
+    // macOS uses CoreAudio, for now return defaults
+    Ok(vec![
+        AudioDeviceInfo {
+            device_id: "default".to_string(),
+            label: "Default Microphone".to_string(),
+            kind: "audioinput".to_string(),
+        },
+        AudioDeviceInfo {
+            device_id: "default".to_string(),
+            label: "Default Speaker".to_string(),
+            kind: "audiooutput".to_string(),
+        },
+    ])
+}
+
+#[cfg(target_os = "windows")]
+async fn list_audio_devices_windows() -> Result<Vec<AudioDeviceInfo>, String> {
+    // Windows uses WASAPI, for now return defaults
+    Ok(vec![
+        AudioDeviceInfo {
+            device_id: "default".to_string(),
+            label: "Default Microphone".to_string(),
+            kind: "audioinput".to_string(),
+        },
+        AudioDeviceInfo {
+            device_id: "default".to_string(),
+            label: "Default Speaker".to_string(),
+            kind: "audiooutput".to_string(),
+        },
+    ])
+}

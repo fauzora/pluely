@@ -824,6 +824,40 @@ export const useCompletion = () => {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isPopoverOpen, scrollAreaRef]);
 
+  // Global shortcut for scrolling chat (CTRL+ALT+UP/DOWN or CMD+ALT+UP/DOWN)
+  useEffect(() => {
+    const scrollChat = (direction: "up" | "down") => {
+      const activeScrollRef = scrollAreaRef.current || scrollAreaRef.current;
+      const scrollElement = activeScrollRef?.querySelector(
+        "[data-radix-scroll-area-viewport]"
+      ) as HTMLElement;
+
+      if (!scrollElement) return;
+
+      const scrollAmount = 150; // pixels to scroll
+
+      if (direction === "down") {
+        scrollElement.scrollBy({ top: scrollAmount, behavior: "smooth" });
+      } else {
+        scrollElement.scrollBy({ top: -scrollAmount, behavior: "smooth" });
+      }
+    };
+
+    // Register custom shortcut callbacks for scroll
+    globalShortcuts.registerCustomShortcutCallback("scroll_chat_up", () => {
+      scrollChat("up");
+    });
+
+    globalShortcuts.registerCustomShortcutCallback("scroll_chat_down", () => {
+      scrollChat("down");
+    });
+
+    return () => {
+      globalShortcuts.unregisterCustomShortcutCallback("scroll_chat_up");
+      globalShortcuts.unregisterCustomShortcutCallback("scroll_chat_down");
+    };
+  }, [globalShortcuts, scrollAreaRef]);
+
   // Keyboard shortcut for toggling keep engaged mode (Cmd+K / Ctrl+K)
   useEffect(() => {
     const handleToggleShortcut = (e: KeyboardEvent) => {

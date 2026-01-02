@@ -1,4 +1,7 @@
 fn main() {
+    // Force rebuild when .env changes
+    println!("cargo:rerun-if-changed=.env");
+    
     dotenv::dotenv().ok();
 
     if let Ok(payment_endpoint) = std::env::var("PAYMENT_ENDPOINT") {

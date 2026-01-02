@@ -83,6 +83,16 @@ pub fn set_window_height(window: tauri::WebviewWindow, height: u32) -> Result<()
     Ok(())
 }
 
+// #[tauri::command]
+// pub fn set_window_height(window: tauri::WebviewWindow, width: u32, height: u32) -> Result<(), String> {
+//     use tauri::{LogicalSize, Size};
+//     let new_size = LogicalSize::new(width as f64, height as f64);
+//     window
+//         .set_size(Size::Logical(new_size))
+//         .map_err(|e| format!("Failed to resize window: {}", e))?;
+//     Ok(())
+// }
+
 #[tauri::command]
 pub fn open_dashboard(app: tauri::AppHandle) -> Result<(), String> {
     // Check if dashboard window already exists

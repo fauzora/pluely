@@ -81,6 +81,7 @@ pub fn run() {
             capture::start_screen_capture,
             capture::capture_selected_area,
             capture::close_overlay_window,
+            capture::check_multi_monitor_support,
             shortcuts::check_shortcuts_registered,
             shortcuts::get_registered_shortcuts,
             shortcuts::update_shortcuts,
@@ -112,6 +113,7 @@ pub fn run() {
             speaker::update_vad_config,
             speaker::get_capture_status,
             speaker::get_audio_sample_rate,
+            speaker::list_audio_devices,
         ])
         .setup(|app| {
             // Setup main window positioning

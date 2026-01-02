@@ -10,6 +10,308 @@ use tauri::Emitter;
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use xcap::Monitor;
 
+/// Mendapatkan posisi mouse saat ini (Linux - mendukung X11, Xorg, dan Wayland)
+#[cfg(target_os = "linux")]
+fn get_mouse_position() -> Result<(i32, i32), String> {
+    use std::process::Command;
+    use std::env;
+
+    // Deteksi session type
+    let session_type = env::var("XDG_SESSION_TYPE").unwrap_or_default();
+    
+    // Method 1: Coba xdotool (bekerja di X11/Xorg dan XWayland)
+    if let Ok(output) = Command::new("xdotool")
+        .args(["getmouselocation", "--shell"])
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut x = 0i32;
+            let mut y = 0i32;
+
+            for line in stdout.lines() {
+                if let Some(val) = line.strip_prefix("X=") {
+                    x = val.parse().unwrap_or(0);
+                } else if let Some(val) = line.strip_prefix("Y=") {
+                    y = val.parse().unwrap_or(0);
+                }
+            }
+            
+            if x != 0 || y != 0 {
+                return Ok((x, y));
+            }
+        }
+    }
+
+    // Method 2: Coba kdotool (untuk KDE Wayland)
+    if session_type == "wayland" {
+        if let Ok(output) = Command::new("kdotool")
+            .args(["getmouselocation"])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                // Format: x:123 y:456
+                let mut x = 0i32;
+                let mut y = 0i32;
+                
+                for part in stdout.split_whitespace() {
+                    if let Some(val) = part.strip_prefix("x:") {
+                        x = val.parse().unwrap_or(0);
+                    } else if let Some(val) = part.strip_prefix("y:") {
+                        y = val.parse().unwrap_or(0);
+                    }
+                }
+                
+                if x != 0 || y != 0 {
+                    return Ok((x, y));
+                }
+            }
+        }
+    }
+
+    // Method 3: Coba ydotool (Wayland alternative)
+    if session_type == "wayland" {
+        if let Ok(output) = Command::new("ydotool")
+            .args(["getmouselocation"])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let parts: Vec<&str> = stdout.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let x: i32 = parts[0].parse().unwrap_or(0);
+                    let y: i32 = parts[1].parse().unwrap_or(0);
+                    if x != 0 || y != 0 {
+                        return Ok((x, y));
+                    }
+                }
+            }
+        }
+    }
+
+    // Method 4: Coba hyprctl (untuk Hyprland Wayland)
+    if session_type == "wayland" {
+        if let Ok(output) = Command::new("hyprctl")
+            .args(["cursorpos"])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                // Format: 123, 456
+                let parts: Vec<&str> = stdout.split(',').map(|s| s.trim()).collect();
+                if parts.len() >= 2 {
+                    let x: i32 = parts[0].parse().unwrap_or(0);
+                    let y: i32 = parts[1].parse().unwrap_or(0);
+                    if x != 0 || y != 0 {
+                        return Ok((x, y));
+                    }
+                }
+            }
+        }
+    }
+
+    // Method 5: Coba wlr-randr + slurp untuk wlroots-based compositors (Sway, etc)
+    if session_type == "wayland" {
+        if let Ok(output) = Command::new("slurp")
+            .args(["-p", "-f", "%x %y"])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let parts: Vec<&str> = stdout.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let x: i32 = parts[0].parse().unwrap_or(0);
+                    let y: i32 = parts[1].parse().unwrap_or(0);
+                    return Ok((x, y));
+                }
+            }
+        }
+    }
+
+    // Method 6: Coba xinput untuk X11
+    if let Ok(output) = Command::new("xinput")
+        .args(["query-state", "2"])  // Device 2 biasanya mouse
+        .output()
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let mut x = 0i32;
+            let mut y = 0i32;
+            
+            for line in stdout.lines() {
+                if line.contains("valuator[0]=") {
+                    if let Some(val) = line.split('=').nth(1) {
+                        x = val.trim().parse().unwrap_or(0);
+                    }
+                } else if line.contains("valuator[1]=") {
+                    if let Some(val) = line.split('=').nth(1) {
+                        y = val.trim().parse().unwrap_or(0);
+                    }
+                }
+            }
+            
+            if x != 0 || y != 0 {
+                return Ok((x, y));
+            }
+        }
+    }
+
+    Err(format!(
+        "Gagal mendapatkan posisi mouse. Session type: {}. \
+        Untuk X11: install xdotool. \
+        Untuk Wayland: install kdotool (KDE), ydotool, atau hyprctl (Hyprland)",
+        session_type
+    ))
+}
+
+/// Mendapatkan posisi mouse saat ini (macOS)
+#[cfg(target_os = "macos")]
+fn get_mouse_position() -> Result<(i32, i32), String> {
+    use std::process::Command;
+
+    // Menggunakan AppleScript untuk mendapatkan posisi mouse di macOS
+    let output = Command::new("osascript")
+        .args(["-e", "tell application \"System Events\" to get the position of the mouse"])
+        .output()
+        .map_err(|e| format!("Failed to get mouse location: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let parts: Vec<&str> = stdout.split(", ").collect();
+    
+    if parts.len() >= 2 {
+        let x = parts[0].parse().unwrap_or(0);
+        let y = parts[1].parse().unwrap_or(0);
+        Ok((x, y))
+    } else {
+        Err("Failed to parse mouse position".to_string())
+    }
+}
+
+/// Mendapatkan posisi mouse saat ini (Windows)
+#[cfg(target_os = "windows")]
+fn get_mouse_position() -> Result<(i32, i32), String> {
+    // Fallback: return center of primary monitor
+    // Untuk implementasi penuh, tambahkan windows crate dengan fitur Win32_UI_WindowsAndMessaging
+    Err("Mouse position not implemented for Windows yet".to_string())
+}
+
+/// Mencari index monitor yang mengandung posisi tertentu
+fn find_monitor_at_position(monitors: &[Monitor], x: i32, y: i32) -> Option<usize> {
+    for (idx, monitor) in monitors.iter().enumerate() {
+        let mon_x = monitor.x();
+        let mon_y = monitor.y();
+        let mon_width = monitor.width() as i32;
+        let mon_height = monitor.height() as i32;
+
+        if x >= mon_x && x < mon_x + mon_width && y >= mon_y && y < mon_y + mon_height {
+            return Some(idx);
+        }
+    }
+    None
+}
+
+/// Informasi dukungan multi-monitor
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MultiMonitorSupport {
+    pub supported: bool,
+    pub session_type: String,
+    pub available_tools: Vec<String>,
+    pub missing_tools: Vec<String>,
+    pub install_command: String,
+}
+
+/// Cek apakah tools untuk mendapatkan posisi mouse tersedia
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub fn check_multi_monitor_support() -> MultiMonitorSupport {
+    use std::process::Command;
+    use std::env;
+
+    let session_type = env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "unknown".to_string());
+    let mut available_tools = Vec::new();
+    let mut missing_tools = Vec::new();
+
+    // Cek xdotool (X11/XWayland)
+    if Command::new("which").arg("xdotool").output()
+        .map(|o| o.status.success()).unwrap_or(false) {
+        available_tools.push("xdotool".to_string());
+    } else {
+        missing_tools.push("xdotool".to_string());
+    }
+
+    // Cek kdotool (KDE Wayland)
+    if Command::new("which").arg("kdotool").output()
+        .map(|o| o.status.success()).unwrap_or(false) {
+        available_tools.push("kdotool".to_string());
+    }
+
+    // Cek ydotool (Wayland)
+    if Command::new("which").arg("ydotool").output()
+        .map(|o| o.status.success()).unwrap_or(false) {
+        available_tools.push("ydotool".to_string());
+    }
+
+    // Cek hyprctl (Hyprland)
+    if Command::new("which").arg("hyprctl").output()
+        .map(|o| o.status.success()).unwrap_or(false) {
+        available_tools.push("hyprctl".to_string());
+    }
+
+    // Cek slurp (wlroots)
+    if Command::new("which").arg("slurp").output()
+        .map(|o| o.status.success()).unwrap_or(false) {
+        available_tools.push("slurp".to_string());
+    }
+
+    let supported = !available_tools.is_empty();
+    
+    // Generate install command berdasarkan session type
+    let install_command = if session_type == "wayland" {
+        if env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase().contains("kde") {
+            "sudo apt install kdotool  # atau dari AUR untuk Arch".to_string()
+        } else if env::var("XDG_CURRENT_DESKTOP").unwrap_or_default().to_lowercase().contains("hyprland") {
+            "# hyprctl sudah tersedia dengan Hyprland".to_string()
+        } else {
+            "sudo apt install xdotool  # untuk XWayland compatibility".to_string()
+        }
+    } else {
+        "sudo apt install xdotool".to_string()
+    };
+
+    MultiMonitorSupport {
+        supported,
+        session_type,
+        available_tools,
+        missing_tools,
+        install_command,
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn check_multi_monitor_support() -> MultiMonitorSupport {
+    MultiMonitorSupport {
+        supported: true,
+        session_type: "macos".to_string(),
+        available_tools: vec!["osascript".to_string()],
+        missing_tools: vec![],
+        install_command: "# Tidak perlu install tambahan di macOS".to_string(),
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub fn check_multi_monitor_support() -> MultiMonitorSupport {
+    MultiMonitorSupport {
+        supported: false,
+        session_type: "windows".to_string(),
+        available_tools: vec![],
+        missing_tools: vec!["win32api".to_string()],
+        install_command: "# Fitur ini belum tersedia untuk Windows".to_string(),
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SelectionCoords {
     pub x: u32,
@@ -262,52 +564,9 @@ pub async fn capture_selected_area(
 }
 
 #[tauri::command]
-pub async fn capture_to_base64(window: tauri::WebviewWindow) -> Result<String, String> {
-    let monitor_fallback = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| window.primary_monitor().ok().flatten());
-
-    let geometry = match (window.outer_position(), window.outer_size()) {
-        (Ok(position), Ok(size)) => {
-            let width = size.width.min(i32::MAX as u32) as i32;
-            let height = size.height.min(i32::MAX as u32) as i32;
-            let left = position.x;
-            let top = position.y;
-            (
-                left,
-                top,
-                left.saturating_add(width),
-                top.saturating_add(height),
-                left.saturating_add(width / 2),
-                top.saturating_add(height / 2),
-            )
-        }
-        _ => {
-            if let Some(monitor) = &monitor_fallback {
-                let position = monitor.position();
-                let size = monitor.size();
-                let width = size.width.min(i32::MAX as u32) as i32;
-                let height = size.height.min(i32::MAX as u32) as i32;
-                let left = position.x;
-                let top = position.y;
-                (
-                    left,
-                    top,
-                    left.saturating_add(width),
-                    top.saturating_add(height),
-                    left.saturating_add(width / 2),
-                    top.saturating_add(height / 2),
-                )
-            } else {
-                (0, 0, 0, 0, 0, 0)
-            }
-        }
-    };
-
-    let (window_left, window_top, window_right, window_bottom, window_center_x, window_center_y) =
-        geometry;
+pub async fn capture_to_base64(_window: tauri::WebviewWindow) -> Result<String, String> {
+    // Coba dapatkan posisi mouse terlebih dahulu
+    let mouse_pos = get_mouse_position().ok();
 
     tauri::async_runtime::spawn_blocking(move || {
         let monitors = Monitor::all().map_err(|e| format!("Failed to get monitors: {}", e))?;
@@ -315,47 +574,16 @@ pub async fn capture_to_base64(window: tauri::WebviewWindow) -> Result<String, S
             return Err("No monitors found".to_string());
         }
 
-        let mut best_idx: Option<usize> = None;
-        let mut best_area: i64 = 0;
-
-        for (idx, monitor) in monitors.iter().enumerate() {
-            let monitor_left = monitor.x();
-            let monitor_top = monitor.y();
-            let monitor_right = monitor_left.saturating_add(monitor.width() as i32);
-            let monitor_bottom = monitor_top.saturating_add(monitor.height() as i32);
-
-            let overlap_width =
-                (window_right.min(monitor_right) - window_left.max(monitor_left)).max(0);
-            let overlap_height =
-                (window_bottom.min(monitor_bottom) - window_top.max(monitor_top)).max(0);
-            let area = (overlap_width as i64) * (overlap_height as i64);
-
-            if area > best_area {
-                best_area = area;
-                best_idx = Some(idx);
-            }
-        }
-
-        let target_idx = if let Some(idx) = best_idx {
-            idx
+        // Tentukan target monitor berdasarkan posisi mouse
+        let target_idx = if let Some((mouse_x, mouse_y)) = mouse_pos {
+            // Cari monitor yang mengandung posisi mouse
+            find_monitor_at_position(&monitors, mouse_x, mouse_y).unwrap_or(0)
         } else {
-            let mut closest_idx = 0usize;
-            let mut closest_distance = i128::MAX;
-
-            for (idx, monitor) in monitors.iter().enumerate() {
-                let monitor_center_x = monitor.x().saturating_add(monitor.width() as i32 / 2);
-                let monitor_center_y = monitor.y().saturating_add(monitor.height() as i32 / 2);
-                let dx = (window_center_x - monitor_center_x) as i128;
-                let dy = (window_center_y - monitor_center_y) as i128;
-                let distance = dx * dx + dy * dy;
-
-                if distance < closest_distance {
-                    closest_distance = distance;
-                    closest_idx = idx;
-                }
-            }
-
-            closest_idx
+            // Fallback ke primary monitor jika gagal mendapatkan posisi mouse
+            monitors
+                .iter()
+                .position(|m| m.is_primary())
+                .unwrap_or(0)
         };
 
         let monitor = monitors
