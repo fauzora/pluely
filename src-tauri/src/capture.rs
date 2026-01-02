@@ -191,9 +191,16 @@ fn get_mouse_position() -> Result<(i32, i32), String> {
 /// Mendapatkan posisi mouse saat ini (Windows)
 #[cfg(target_os = "windows")]
 fn get_mouse_position() -> Result<(i32, i32), String> {
-    // Fallback: return center of primary monitor
-    // Untuk implementasi penuh, tambahkan windows crate dengan fitur Win32_UI_WindowsAndMessaging
-    Err("Mouse position not implemented for Windows yet".to_string())
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    unsafe {
+        let mut pt = POINT { x: 0, y: 0 };
+        if GetCursorPos(&mut pt).as_bool() {
+            Ok((pt.x, pt.y))
+        } else {
+            Err("Failed to get mouse position using Win32 API".to_string())
+        }
+    }
 }
 
 /// Mencari index monitor yang mengandung posisi tertentu
@@ -303,12 +310,25 @@ pub fn check_multi_monitor_support() -> MultiMonitorSupport {
 #[cfg(target_os = "windows")]
 #[tauri::command]
 pub fn check_multi_monitor_support() -> MultiMonitorSupport {
+    // Coba akses Win32 API untuk cek dukungan
+    let mut available_tools = Vec::new();
+    let mut missing_tools = Vec::new();
+    let supported = match get_mouse_position() {
+        Ok(_) => {
+            available_tools.push("win32api".to_string());
+            true
+        },
+        Err(_) => {
+            missing_tools.push("win32api".to_string());
+            false
+        }
+    };
     MultiMonitorSupport {
-        supported: false,
+        supported,
         session_type: "windows".to_string(),
-        available_tools: vec![],
-        missing_tools: vec!["win32api".to_string()],
-        install_command: "# Fitur ini belum tersedia untuk Windows".to_string(),
+        available_tools,
+        missing_tools,
+        install_command: "# Win32 API didukung secara native di Windows. Pastikan aplikasi berjalan dengan izin yang cukup.".to_string(),
     }
 }
 
